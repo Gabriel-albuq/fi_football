@@ -7,19 +7,43 @@ import calib
 def get_limits(color):
     c = np.uint8([[color]])  # BGR values
     hsvC = cv2.cvtColor(c, cv2.COLOR_BGR2HSV)
+    inc = 10
 
-    hue = hsvC[0][0][0]  # Get the hue value
+    h = hsvC[0][0][0]
+    if h + inc >= 255:
+        h_l = h - inc
+        h_u = 255
+    elif h - inc < 1:
+        h_l = 1
+        h_u = h + inc
+    else: 
+        h_l = h - inc
+        h_u = h + inc
 
-    # Handle red hue wrap-around  #Para diminuir o range mudar o hue - e hue
-    if hue >= 165:  # Upper limit for divided red hue
-        lowerLimit = np.array([hue - 10, 100, 100], dtype=np.uint8)
-        upperLimit = np.array([180, 255, 255], dtype=np.uint8)
-    elif hue <= 15:  # Lower limit for divided red hue
-        lowerLimit = np.array([0, 100, 100], dtype=np.uint8)
-        upperLimit = np.array([hue + 10, 255, 255], dtype=np.uint8)
-    else:
-        lowerLimit = np.array([hue - 10, 100, 100], dtype=np.uint8)
-        upperLimit = np.array([hue + 10, 255, 255], dtype=np.uint8)
+    s = hsvC[0][0][1] 
+    if s + inc >= 255:
+        s_l = s - inc
+        s_u = 255
+    elif s - inc < 1:
+        s_l = 1
+        s_u = s + inc
+    else: 
+        s_l = s - inc
+        s_u = s + inc
+
+    v = hsvC[0][0][2] 
+    if v + inc >= 255:
+        v_l = v - inc
+        v_u = 255
+    elif v - inc < 1:
+        v_l = 1
+        v_u = v + inc
+    else: 
+        v_l = v - inc
+        v_u = v + inc
+
+    lowerLimit = np.array([h_l, s_l, v_l], dtype=np.uint8)
+    upperLimit = np.array([h_u, s_u, v_u], dtype=np.uint8)
 
     return lowerLimit, upperLimit
 
@@ -74,18 +98,18 @@ def plot_ground(frame_ground, matrix, xmin, ymin, xmax, ymax, cor_classif):
     return frame_ground
 
 
-video_path = os.path.join('.', 'data', 'sport1.mp4')
+video_path = os.path.join('.', 'data', 'video.avi')
 ground_path = 'data/dst.jpg'
 
 # Definir se vai pltoar os pontos ou passar a matriz diretamente
-switch_matrix = 0
+switch_matrix = 1
 
 if switch_matrix == 0:
     matrix = calib.create_points(video_path, ground_path)
     print(matrix)
-else: matrix = np.array([[-2.0589,-3.0571,2282.1],
-                        [-0.198,-7.6683,3413],
-                        [-0.0002981,-0.0069014,1]])
+else: matrix = np.array([[    0.31894,     0.66294,       169.5],
+                        [   0.020267,      1.5178,     -123.68],
+                        [ 4.4284e-05,    0.001466,           1]])
 
 # Campo em 2D
 ground = cv2.imread(ground_path, -1)
@@ -95,12 +119,12 @@ cap = cv2.VideoCapture(video_path)
 ret, frame = cap.read()
 
 # Modelo de detecção
-model = YOLO("yolov8n.pt")
+model = YOLO("best.pt")
 
 #Cores dos times, goleiro e juiz
-cor_mandante = [40, 56, 244]
-cor_visitante = [0, 192, 255]
-cor_juiz = [0, 0, 0]
+cor_mandante = [111, 47, 38]
+cor_visitante = [255, 251, 255]
+cor_juiz = [19, 48, 191]
 
 # Para o método de times por apontamento, pegar os IDs e escrever aqui
 lista_mandante = [2,3,11,12,20]
@@ -119,21 +143,20 @@ while ret:
     frame_ground = ground.copy()
 
     for result in results[0]:
-        print(result.boxes)
         if result.boxes is not None:
             bbox = result.boxes.xyxy[:4].cpu().numpy()  # Coordenadas da caixa delimitadora (xmin, ymin, xmax, ymax)
             conf = float(result.boxes.conf.cpu().numpy())  # Confiança da detecção
             track_id = result.boxes.id.cpu().numpy()[0] # ID do Tracking
             class_id = result.names[int(result.boxes.cls)]  # ID da classe
             
-            if conf > 0.05:  # Considerar apenas detecções com confiança acima de 0.# Desenhar a caixa delimitadora na imagem
+            if conf > 0.01:  # Considerar apenas detecções com confiança acima de 0.# Desenhar a caixa delimitadora na imagem
                 xmin, ymin, xmax, ymax = map(int,(bbox[0][0], bbox[0][1], bbox[0][2], bbox[0][3])) # Coordenadas das caixas
 
                 # Escolher os times pelo método de detecção de cor
-                #cor_classif = get_team_detect(frame, cor_mandante, cor_visitante, cor_juiz)
+                cor_classif = get_team_detect(frame, cor_mandante, cor_visitante, cor_juiz)
 
                 #Escolher os times pelo método de apontamento pelo ID
-                cor_classif = get_team_apont(track_id, lista_mandante, lista_visitante, lista_juiz, cor_mandante, cor_visitante, cor_juiz)
+                #cor_classif = get_team_apont(track_id, lista_mandante, lista_visitante, lista_juiz, cor_mandante, cor_visitante, cor_juiz)
                 cv2.rectangle(frame, (xmin, ymin), (xmax, ymax), cor_classif, 2)
                 cv2.putText(frame, f"ID: {track_id}", (xmin, ymin - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, cor_classif, 1)
 
