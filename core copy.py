@@ -3,6 +3,37 @@ import cv2
 from ultralytics import YOLO
 import numpy as np
 import calib
+from collections import Counter
+
+class ClassColorInertia:
+    def __init__(self, track_id, inertia, color):
+        self.list_color = [color]
+        self.inertia = inertia
+        self.track_id = track_id
+
+    def add_element(self, color):
+        if len(self.list_color) == self.inertia:
+            self.list_color.pop() # Se a lista atingiu a capacidade máxima, remove o último elemento
+
+        self.list_color.insert(0, color) # Adiciona o novo elemento na primeira posição
+    
+    def get_list(self):
+        return self.list_color
+    
+    def get_inertia(self):
+        return self.inertia
+    
+    def get_track_id(self):
+        return self.track_id
+    
+    def get_inertia_color(self):
+        if not self.list_color:
+            return [0,0,0]
+
+        counter = Counter(tuple(color) for color in self.list_color)
+        most_common_element = counter.most_common(1)[0][0]
+        return most_common_element
+    
 
 def get_limits(color):
     c = np.uint8([[color]])  # BGR values
@@ -47,9 +78,22 @@ def get_limits(color):
 
     return lowerLimit, upperLimit
 
-def get_team_detect(frame, cor_mandante, cor_visitante, cor_juiz):
-    hsvImage = cv2.cvtColor(frame[int(ymin):int(ymax), int(xmin):int(xmax)], cv2.COLOR_BGR2HSV)
-    #Mandante
+def get_team_detect(frame, track_id, cor_mandante, cor_visitante, cor_juiz, xmin, ymin, xmax, ymax):
+    frame_crop = frame[ymin:ymax, xmin:xmax]
+
+    # Ajustar para pegar só a camisa pela proporção do corpo
+    inferior_pe = ymax
+    topo_cabeca = ymin
+    
+    div_corpo = int((topo_cabeca - inferior_pe) / 8.5)
+    ymax_camisa = inferior_pe + 5 * div_corpo
+    ymin_camisa = topo_cabeca - 1 * div_corpo
+
+    hsvImage = cv2.cvtColor(frame[ymin_camisa:ymax_camisa, xmin:xmax], cv2.COLOR_BGR2HSV)
+    #cv2.imshow("Cor camisa",hsvImage)
+    #cv2.waitKey(2500)
+    
+    # Mandante
     lowerLimit, upperLimit = get_limits(color=cor_mandante)
     mask = cv2.inRange(hsvImage, lowerLimit, upperLimit)
     count_mandante = cv2.countNonZero(mask)
@@ -97,9 +141,29 @@ def plot_ground(frame_ground, matrix, xmin, ymin, xmax, ymax, cor_classif):
 
     return frame_ground
 
+def get_color_inertia(List_ClassColorInertia, track_id, cor_classif):
+    inertia = 20
+    # Encontrar o objeto com o track_id_to_check
+    found_object = next((obj for obj in List_ClassColorInertia if obj.get_track_id() == track_id), None)
+    if found_object is not None:
+        found_object.add_element(cor_classif)
+    else:
+        List_ClassColorInertia.append(ClassColorInertia(track_id, inertia, cor_classif))
 
+    found_object = next((obj for obj in List_ClassColorInertia if obj.get_track_id() == track_id), None)
+    color_inertia = found_object.get_inertia_color()
+
+    return color_inertia
+
+# Caminho do vídeo
 video_path = os.path.join('.', 'data', 'video.avi')
 ground_path = 'data/dst.jpg'
+
+# Vídeo de exportação
+output_video_path = os.path.join('.', 'data', 'video_export.mp4')
+# Define the codec and create a VideoWriter object
+fourcc = cv2.VideoWriter_fourcc(*'mp4v')  # Use 'H264' or 'mp4v' for MP4 format
+out = cv2.VideoWriter(output_video_path, fourcc, 25, (1720, 920))
 
 # Definir se vai pltoar os pontos ou passar a matriz diretamente
 switch_matrix = 1
@@ -132,6 +196,7 @@ lista_visitante = [1,4,5,6,9,7,10,14]
 lista_juiz = []
 
 # Caso o ID não seja encontrado a detecção será preta
+List_ClassColorInertia = []
 cor_classif = (0,0,255)
 while ret:
     list_players=[]
@@ -149,14 +214,17 @@ while ret:
             track_id = result.boxes.id.cpu().numpy()[0] # ID do Tracking
             class_id = result.names[int(result.boxes.cls)]  # ID da classe
             
-            if conf > 0.01:  # Considerar apenas detecções com confiança acima de 0.# Desenhar a caixa delimitadora na imagem
+            if conf > 0.7:  # Considerar apenas detecções com confiança acima de 0.# Desenhar a caixa delimitadora na imagem
                 xmin, ymin, xmax, ymax = map(int,(bbox[0][0], bbox[0][1], bbox[0][2], bbox[0][3])) # Coordenadas das caixas
 
                 # Escolher os times pelo método de detecção de cor
-                cor_classif = get_team_detect(frame, cor_mandante, cor_visitante, cor_juiz)
+                cor_classif = get_team_detect(frame, track_id, cor_mandante, cor_visitante, cor_juiz, xmin, ymin, xmax, ymax)
 
                 #Escolher os times pelo método de apontamento pelo ID
                 #cor_classif = get_team_apont(track_id, lista_mandante, lista_visitante, lista_juiz, cor_mandante, cor_visitante, cor_juiz)
+
+                cor_classif = get_color_inertia(List_ClassColorInertia, track_id, cor_classif)
+
                 cv2.rectangle(frame, (xmin, ymin), (xmax, ymax), cor_classif, 2)
                 cv2.putText(frame, f"ID: {track_id}", (xmin, ymin - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, cor_classif, 1)
 
@@ -187,10 +255,12 @@ while ret:
     beta = 1.0 - alpha
     cv2.addWeighted(frame_ground, alpha, roi, beta, 0, roi)
 
+    out.write(frame)
     cv2.imshow('frame', frame)  
     cv2.waitKey(25)
 
     ret, frame = cap.read()
 
+out.release()
 cap.release()
 cv2.destroyAllWindows()

@@ -100,9 +100,26 @@ def get_team_detect(frame, cor_mandante, cor_visitante, cor_juiz):
     return posicao_lista, frame_crop, cor_mandante_hsv, cor_visitante_hsv, cor_juiz_hsv
 
 
-frame_path = 'data/player_azul.png'
-
+frame_path = 'data/juiz.png'
 frame = cv2.imread(frame_path, -1)
+
+# Obtém as dimensões da imagem
+xmin = 0
+ymin = 0
+xmax = frame.shape[1]
+ymax = frame.shape[0]
+
+# Ajustar para pegar só a camisa pela proporção do corpo
+inferior_pe = ymax
+topo_cabeca = ymin
+
+div_corpo = int((topo_cabeca - inferior_pe) / 8.5)
+ymax = inferior_pe + 5 * div_corpo
+ymin = topo_cabeca - 1 * div_corpo
+
+# Extrai a região de interesse (ROI) da imagem
+roi = frame.copy()
+roi = roi[ymin:ymax, xmin:xmax]
 
 #Cores dos times, goleiro e juiz
 cor_mandante = [111, 47, 38]
@@ -113,7 +130,7 @@ cor_classif, frame_crop, cor_mandante_hsv, cor_visitante_hsv, cor_juiz_hsv = get
 print(cor_classif)
 #frame = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
 
-cv2.imshow('frame_crop', frame_crop)
+cv2.imshow('frame_crop', roi)
 
 cv2.waitKey(25000)
 
